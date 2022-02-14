@@ -20,23 +20,75 @@ public class myftpserver {
     private static int numberOfClients = 0;
     private static int nPortNumber = -1;
     private static int tPortNumber = -1;
-	
+	private static boolean keepGoing = false;
+    
     public static void main(String[] args) {
 			
 		// Check command line arguments and makes sure they are valid
 		validateArguments(args);
-	
-		ServerSequence serverSeq = new ServerSequence(nPortNumber, tPortNumber);
-		Thread t1 = new Thread(() -> {
-			serverSeq.normalSequence();
+		
+		Thread normalThread = new Thread(() -> {
+			ServerSocket ss = null;
+			try {
+			    ss = new ServerSocket(nPortNumber);
+			} catch (IOException e) {
+			    System.err.println("Invalid 1st port number! Port number may already be in use");
+			    System.exit(1);
+			} catch (IllegalArgumentException e) {
+			    System.err.println("Invalid 1st port number! Port number is out of range");
+			    System.exit(1);
+			}
+			
+			while (true) {
+			    System.out.println("Waiting for clients...");
+			    Socket toClient = null;
+			    try {
+			    	toClient = ss.accept();
+					numberOfClients++; 
+			    } catch (IOException e) {
+			    	System.err.println("Error with accepting client socket");
+			    }
+			    System.out.println("Connection established");
+			    System.out.println("Number of clients: " + numberOfClients);
+				
+			    // Spawn new thread for handling client commands
+			    ClientHandler clientThread = null;
+			    try {
+				clientThread = new ClientHandler(toClient);
+			    } catch (IOException e) {
+				System.err.println("Error with starting client handler");
+			    }
+			    new Thread(clientThread).start();
+			}
 		});
 		
-		Thread t2 = new Thread(() -> {
-			serverSeq.terminateSequence();
+		Thread terminateThread = new Thread(() -> {
+			ServerSocket terminateSocket = null;
+			try {
+				terminateSocket = new ServerSocket(tPortNumber);
+			} catch (IOException e) {
+			    System.err.println("Invalid 2nd port number! Port number may already be in use");
+			    System.exit(1);
+			} catch (IllegalArgumentException e) {
+			    System.err.println("Invalid 2nd port number! Port number is out of range");
+			    System.exit(1);
+			}
+			
+			while (true) {
+				System.out.println("Waiting for terminate command...");
+				Socket waitingForTerminate = null;
+				try {
+					waitingForTerminate = terminateSocket.accept();
+				} catch (IOException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			
 		});
 		
-		t1.start();
-		t2.start();
+		normalThread.start();
+		terminateThread.start();
 	
     } // main
 	   
@@ -61,80 +113,6 @@ public class myftpserver {
 		    System.err.println("Must specify 2 available port numbers, the 1st value being the normal port and the 2nd the terminate port");
 		    System.exit(1);
 		}
-    }
-    
-    // class for coordinating normal thread and terminate thread
-    private static class ServerSequence {
-    	private boolean keepGoingNormal;
-    	int nPortNumber;
-    	int tPortNumber;
-    	
-    	public ServerSequence(int nPortNumber, int tPortNumber) {
-    		keepGoingNormal = false;
-    		this.nPortNumber = nPortNumber;
-    		this.tPortNumber = tPortNumber;
-    	}
-    	
-    	public synchronized void normalSequence() {
-    		ServerSocket ss = null;
-			try {
-			    ss = new ServerSocket(nPortNumber);
-			} catch (IOException e) {
-			    System.err.println("Invalid 1st port number! Port number may already be in use");
-			    System.exit(1);
-			} catch (IllegalArgumentException e) {
-			    System.err.println("Invalid 1st port number! Port number is out of range");
-			    System.exit(1);
-			}
-	
-			// make it so it waits for the 2nd thread to validate the terminate socket before proceeding to while loop
-			while (!keepGoingNormal) {
-				try {
-					wait();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
-			
-			while (true) {
-			    System.out.println("Waiting for clients...");
-			    Socket toClient = null;
-			    try {
-				toClient = ss.accept();
-				numberOfClients++; 
-			    } catch (IOException e) {
-				System.err.println("Error with accepting client socket");
-			    }
-			    System.out.println("Connection established");
-			    System.out.println("Number of clients: " + numberOfClients);
-				
-			    // Spawn new thread for handling client commands
-			    ClientHandler clientThread = null;
-			    try {
-				clientThread = new ClientHandler(toClient);
-			    } catch (IOException e) {
-				System.err.println("Error with starting client handler");
-			    }
-			    new Thread(clientThread).start();
-			}
-    	}
-    	
-    	public synchronized void terminateSequence() {
-    		ServerSocket terminateSocket = null;
-			try {
-				terminateSocket = new ServerSocket(tPortNumber);
-			} catch (IOException e) {
-			    System.err.println("Invalid 2nd port number! Port number may already be in use");
-			    System.exit(1);
-			} catch (IllegalArgumentException e) {
-			    System.err.println("Invalid 2nd port number! Port number is out of range");
-			    System.exit(1);
-			}
-			
-			keepGoingNormal = true;
-			notify();
-    	}
     }
     
     // command-reading-thread

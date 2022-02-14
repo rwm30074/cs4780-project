@@ -41,7 +41,7 @@ public class myftp {
 		try {
 			// Establish connection with server socket
 			Socket toServer = new Socket(host, nPortNumber);
-			//Socket terminateSocket = new Socket(host, tPortNumber);
+			Socket terminateSocket = new Socket(host, tPortNumber);
 			
 			BufferedReader keyboard = new BufferedReader(new InputStreamReader(System.in));
 			BufferedReader in = new BufferedReader(new InputStreamReader(toServer.getInputStream()));
