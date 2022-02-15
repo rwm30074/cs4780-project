@@ -49,6 +49,9 @@ public class myftp {
 			
 			DataInputStream dataInputStream = new DataInputStream(toServer.getInputStream());
 			DataOutputStream dataOutputStream = new DataOutputStream(toServer.getOutputStream());
+			
+			BufferedReader inTerminate = new BufferedReader(new InputStreamReader(terminateSocket.getInputStream()));
+			PrintWriter outTerminate = new PrintWriter(terminateSocket.getOutputStream(), true);
 						
 			// read client's inputs
 			while(true) {	
@@ -57,6 +60,7 @@ public class myftp {
 				
 				if (command.equals("quit") || command.equals("end-server")) {
 					out.println(command); // notify server of quit
+					outTerminate.println(command);
 					break;	
 				} else if (command.equals("ls") || command.equals("pwd")) { // these commands require printing info
 					handleLsOrPwd(command, in, out);
@@ -64,6 +68,8 @@ public class myftp {
 					handlePut(command, dataOutputStream, out);
 				} else if (command.contains(" ") && command.substring(0, command.indexOf(" ")).equals("get")) {
 					handleGet(command, dataInputStream, in, out);
+				} else if (command.contains(" ") && command.substring(0, command.indexOf(" ")).equals("terminate")) {
+					handleTerminate(command, inTerminate, outTerminate);
 				} else if (!command.equals("ls") && !command.equals("pwd")) { 
 					printServerResponse(command, in, out);
 				} else {
@@ -73,6 +79,8 @@ public class myftp {
 			
 			in.close();
 			out.close();
+			inTerminate.close();
+			outTerminate.close();
 		} catch (IOException e) {
 			System.err.println("Unable to establish connection with server due to unknown machine name or invalid port number(s)");
 		} catch (IllegalArgumentException e) {
@@ -81,6 +89,11 @@ public class myftp {
 	}
 	
 	/************ Commands *************/
+	
+	private static void handleTerminate(String command, BufferedReader inTerminate, PrintWriter outTerminate) throws IOException {
+		outTerminate.println(command);
+		System.out.println(inTerminate.readLine());
+	}
 	
 	private static void handleLsOrPwd(String command, BufferedReader in, PrintWriter out) throws IOException {
 		out.println(command); // notify server of either ls or pwd

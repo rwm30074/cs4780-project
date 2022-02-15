@@ -63,9 +63,9 @@ public class myftpserver {
 		});
 		
 		Thread terminateThread = new Thread(() -> {
-			ServerSocket terminateSocket = null;
+			ServerSocket terminateServerSocket = null;
 			try {
-				terminateSocket = new ServerSocket(tPortNumber);
+				terminateServerSocket = new ServerSocket(tPortNumber);
 			} catch (IOException e) {
 			    System.err.println("Invalid 2nd port number! Port number may already be in use");
 			    System.exit(1);
@@ -76,13 +76,22 @@ public class myftpserver {
 			
 			while (true) {
 				System.out.println("Waiting for terminate command...");
-				Socket waitingForTerminate = null;
+				Socket toClientTerminate = null;
 				try {
-					waitingForTerminate = terminateSocket.accept();
+					toClientTerminate = terminateServerSocket.accept();
 				} catch (IOException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
+				
+				TerminateHandler terminateWatcher = null;
+				
+				try {
+					terminateWatcher = new TerminateHandler(toClientTerminate);
+				} catch (IOException e) {
+					System.err.println("Error with starting terminate handler");
+				}
+			    new Thread(terminateWatcher).start();
 			}
 			
 		});
@@ -115,6 +124,54 @@ public class myftpserver {
 		}
     }
     
+    // terminate thread
+    private static class TerminateHandler implements Runnable {
+    	
+    	private Socket toClientTerminate;
+		private BufferedReader inTerminate;
+		private PrintWriter outTerminate;
+	
+		public TerminateHandler(Socket toClientTerminate) throws IOException {
+			this.toClientTerminate = toClientTerminate;
+			this.inTerminate = new BufferedReader(new InputStreamReader(toClientTerminate.getInputStream()));
+		    this.outTerminate = new PrintWriter(toClientTerminate.getOutputStream(), true);
+		}
+		
+    	public void run() {
+		    // loop continues reading commands until the user types in "quit"
+			while (true) {
+			    String command = "";
+			    try {
+			    	command = inTerminate.readLine(); // read command
+			    } catch (IOException e) {
+			    	e.printStackTrace();
+			    }	
+			    if (command.contains(" ") && !command.substring(command.indexOf(" ") + 1).equals("")) { // if command has 2 parts, the command itself and file
+			    	String commandID = command.substring(command.indexOf(" ") + 1); // fileName
+					if (command.substring(0, command.indexOf(" ")).equals("terminate")) { // get command
+					    outTerminate.println("Terminate commandID of " + commandID);
+					}		
+			    } else if (command.equals("quit")) { // quit
+					try {
+						handleQuit();
+					} catch (IOException e) {
+						System.err.println("IOException in terminate handler");
+					}
+					break;		
+			    } else {
+			    	outTerminate.println("Unknown command");
+			    }
+			} // while	 
+		} // run
+    	
+    	private void handleQuit() throws IOException {
+    		inTerminate.close();
+    		outTerminate.close();
+    		toClientTerminate.close();
+    	}
+    	
+    }
+    
     // command-reading-thread
     private static class ClientHandler implements Runnable {
     	
@@ -123,7 +180,9 @@ public class myftpserver {
 		private DataOutputStream dataOutputStream;
 		private DataInputStream dataInputStream;
 		private BufferedReader in;
+		private BufferedReader inTerminate;
 		private PrintWriter out;
+		private PrintWriter outTerminate;
 		private File returnFile;
 			
 		public ClientHandler(Socket toClient) throws IOException {
@@ -138,40 +197,40 @@ public class myftpserver {
 			
 		public void run() {
 		    try {
-			// loop continues reading commands until the user types in "quit"
-			while (true) {
-			    String command = "";
-			    try {
-			    	command = in.readLine(); // read command
-			    } catch (IOException e) {
-			    	e.printStackTrace();
-			    }	
-			    if (command.contains(" ") && !command.substring(command.indexOf(" ") + 1).equals("")) { // if command has 2 parts, the command itself and file
-			    	String fileName = command.substring(command.indexOf(" ") + 1); // fileName
-					if (command.substring(0, command.indexOf(" ")).equals("get")) { // get command
-					    handleGet(fileName, dataOutputStream, out);
-					} else if (command.substring(0, command.indexOf(" ")).equals("put")) { // put command
-					    handlePut(dataInputStream);								
-					} else if (command.substring(0, command.indexOf(" ")).equals("delete")) { // delete command
-					    handleDelete(fileName);									
-					} else if (command.substring(0, command.indexOf(" ")).equals("cd")) { // cd command
-					    handleCd(fileName);											
-					} else if (command.substring(0, command.indexOf(" ")).equals("mkdir")) { // mkdir
-					    handleMkdir(fileName);
-					} else {
-					    out.println("Unknown command");
-					}		
-			    } else if (command.equals("ls")) { // ls
-					handleLs();	
-			    } else if (command.equals("pwd")) { // pwd
-					out.println(remoteCurrDir.getAbsolutePath());
-			    } else if (command.equals("quit")) { // quit
-					handleQuit();
-					break;		
-			    } else {
-			    	out.println("Unknown command");
-			    }
-			} // while	
+		    	// loop continues reading commands until the user types in "quit"
+				while (true) {
+				    String command = "";
+				    try {
+				    	command = in.readLine(); // read command
+				    } catch (IOException e) {
+				    	e.printStackTrace();
+				    }	
+				    if (command.contains(" ") && !command.substring(command.indexOf(" ") + 1).equals("")) { // if command has 2 parts, the command itself and file
+				    	String textFollowingCommand = command.substring(command.indexOf(" ") + 1); // fileName
+						if (command.substring(0, command.indexOf(" ")).equals("get")) { // get command
+						    handleGet(textFollowingCommand, dataOutputStream, out);
+						} else if (command.substring(0, command.indexOf(" ")).equals("put")) { // put command
+						    handlePut(dataInputStream);								
+						} else if (command.substring(0, command.indexOf(" ")).equals("delete")) { // delete command
+						    handleDelete(textFollowingCommand);									
+						} else if (command.substring(0, command.indexOf(" ")).equals("cd")) { // cd command
+						    handleCd(textFollowingCommand);											
+						} else if (command.substring(0, command.indexOf(" ")).equals("mkdir")) { // mkdir
+						    handleMkdir(textFollowingCommand);
+						} else {
+						    out.println("Unknown command");
+						}		
+				    } else if (command.equals("ls")) { // ls
+						handleLs();	
+				    } else if (command.equals("pwd")) { // pwd
+						out.println(remoteCurrDir.getAbsolutePath());
+				    } else if (command.equals("quit")) { // quit
+						handleQuit();
+						break;		
+				    } else {
+				    	out.println("Unknown command");
+				    }
+				} // while	
 		    } catch (IOException e) {
 		    	System.err.println("IOException in client handler");
 		    } 
