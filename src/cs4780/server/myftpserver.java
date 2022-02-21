@@ -11,16 +11,17 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class myftpserver {
+	
+	public static final int NUMBER_BYTES_READ = 2;
 	
     private static int numberOfClients = 0;
     private static int nPortNumber = -1;
     private static int tPortNumber = -1;
 	private static boolean keepGoing = false;
+	private static CommandIDTable commandIDTable = new CommandIDTable();
+	private static CommandCenter cc = new CommandCenter(commandIDTable);
     
     public static void main(String[] args) {
 			
@@ -54,15 +55,16 @@ public class myftpserver {
 			    // Spawn new thread for handling client commands
 			    ClientHandler clientThread = null;
 			    try {
-				clientThread = new ClientHandler(toClient);
+			    	clientThread = new ClientHandler(toClient, new File(System.getProperty("user.dir")));
 			    } catch (IOException e) {
-				System.err.println("Error with starting client handler");
+			    	System.err.println("Error with starting client handler");
 			    }
-			    new Thread(clientThread).start();
+			    Thread commandThread = new Thread(clientThread);
+			    commandThread.start();
 			}
-		});
+		}, "normalThread");
 		
-		Thread terminateThread = new Thread(() -> {
+		Thread haltThread = new Thread(() -> {
 			ServerSocket terminateServerSocket = null;
 			try {
 				terminateServerSocket = new ServerSocket(tPortNumber);
@@ -91,19 +93,24 @@ public class myftpserver {
 				} catch (IOException e) {
 					System.err.println("Error with starting terminate handler");
 				}
-			    new Thread(terminateWatcher).start();
+			    Thread terminateThread = new Thread(terminateWatcher, "terminateThread");
+			    terminateThread.start();
 			}
 			
-		});
+		}, "haltThread");
 		
+		haltThread.start();
 		normalThread.start();
-		terminateThread.start();
 	
     } // main
 	   
     public static void decrementClientCount() {
     	numberOfClients--;
     } // decrementClientCount	
+    
+    public static CommandIDTable getCommandIDTable() {
+    	return commandIDTable;
+    }
     
     private static void validateArguments(String[] args) {
     	if (args.length == 2) {
@@ -125,7 +132,7 @@ public class myftpserver {
     }
     
     // terminate thread
-    private static class TerminateHandler implements Runnable {
+    static class TerminateHandler implements Runnable {
     	
     	private Socket toClientTerminate;
 		private BufferedReader inTerminate;
@@ -146,53 +153,65 @@ public class myftpserver {
 			    } catch (IOException e) {
 			    	e.printStackTrace();
 			    }	
-			    if (command.contains(" ") && !command.substring(command.indexOf(" ") + 1).equals("")) { // if command has 2 parts, the command itself and file
-			    	String commandID = command.substring(command.indexOf(" ") + 1); // fileName
-					if (command.substring(0, command.indexOf(" ")).equals("terminate")) { // get command
-					    outTerminate.println("Terminate commandID of " + commandID);
-					}		
+			    if (command.contains("terminate")) { // if command has 2 parts, the command itself and file
+			    	try {
+			    		int commandID = Integer.parseInt(inTerminate.readLine()); // fileName
+			    		String whatToDo = inTerminate.readLine();
+			    		if (whatToDo.equals("update-table")) {
+			    			// must be a get command
+			    			commandIDTable.terminate(commandID);
+			    		} else if (whatToDo.equals("to-server")) {
+			    			// must be a put command
+			    			if (commandIDTable.contains(commandID) && !commandIDTable.isTerminated(commandID)) {
+			    				commandIDTable.terminate(commandID);
+			    				outTerminate.println("Successfully terminated command " + commandID);
+			    			} else {
+			    				outTerminate.println("Failed to terminate command " + commandID + ". The command has either already ended or does not exist");
+			    			}
+			    		} else {
+			    			commandIDTable.terminate(commandID);
+			    		}
+			    	} catch (NumberFormatException e) {
+			    		outTerminate.println("Invalid input. Specify terminate with an integer command-ID");
+			    	} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					} 
 			    } else if (command.equals("quit")) { // quit
-					try {
-						handleQuit();
-					} catch (IOException e) {
-						System.err.println("IOException in terminate handler");
-					}
 					break;		
 			    } else {
 			    	outTerminate.println("Unknown command");
 			    }
 			} // while	 
+			try {
+				inTerminate.close();
+	    		outTerminate.close();
+	    		toClientTerminate.close();
+			} catch (IOException e) {
+				System.err.println("IOException in terminate handler");
+			}
+			
 		} // run
-    	
-    	private void handleQuit() throws IOException {
-    		inTerminate.close();
-    		outTerminate.close();
-    		toClientTerminate.close();
-    	}
-    	
     }
     
     // command-reading-thread
-    private static class ClientHandler implements Runnable {
+    static class ClientHandler implements Runnable {
     	
+    	//private static final int NUMBER_BYTES_READ = 1;
 		private File remoteCurrDir;
 		private Socket toClient;
 		private DataOutputStream dataOutputStream;
 		private DataInputStream dataInputStream;
 		private BufferedReader in;
-		private BufferedReader inTerminate;
 		private PrintWriter out;
-		private PrintWriter outTerminate;
-		private File returnFile;
 			
-		public ClientHandler(Socket toClient) throws IOException {
-		    remoteCurrDir =  new File(System.getProperty("user.dir"));
+		public ClientHandler(Socket toClient, File remoteCurrDir) throws IOException {
+		    this.remoteCurrDir = remoteCurrDir;
 		    this.toClient = toClient;
 		    dataOutputStream = new DataOutputStream(toClient.getOutputStream());
 		    dataInputStream = new DataInputStream(toClient.getInputStream());
 		    in = new BufferedReader(new InputStreamReader(toClient.getInputStream()));
 		    out = new PrintWriter(toClient.getOutputStream(), true);
-		    returnFile = null;
 		}
 			
 		public void run() {
@@ -201,22 +220,25 @@ public class myftpserver {
 				while (true) {
 				    String command = "";
 				    try {
-				    	command = in.readLine(); // read command
+				    	command = in.readLine();
+				    	System.out.println("Command is " + command);
 				    } catch (IOException e) {
 				    	e.printStackTrace();
 				    }	
 				    if (command.contains(" ") && !command.substring(command.indexOf(" ") + 1).equals("")) { // if command has 2 parts, the command itself and file
-				    	String textFollowingCommand = command.substring(command.indexOf(" ") + 1); // fileName
+				    	String fileName = command.substring(command.indexOf(" ") + 1); // fileName
 						if (command.substring(0, command.indexOf(" ")).equals("get")) { // get command
-						    handleGet(textFollowingCommand, dataOutputStream, out);
+							cc.handleGet(command, dataOutputStream, out, remoteCurrDir);
+							//handleGet(command, dataOutputStream, out);
 						} else if (command.substring(0, command.indexOf(" ")).equals("put")) { // put command
-						    handlePut(dataInputStream);								
+							cc.handlePut(command, dataInputStream, out, remoteCurrDir);
+								//handlePut(command, dataInputStream);			
 						} else if (command.substring(0, command.indexOf(" ")).equals("delete")) { // delete command
-						    handleDelete(textFollowingCommand);									
+						    handleDelete(fileName);									
 						} else if (command.substring(0, command.indexOf(" ")).equals("cd")) { // cd command
-						    handleCd(textFollowingCommand);											
+						    handleCd(fileName);											
 						} else if (command.substring(0, command.indexOf(" ")).equals("mkdir")) { // mkdir
-						    handleMkdir(textFollowingCommand);
+						    handleMkdir(fileName);
 						} else {
 						    out.println("Unknown command");
 						}		
@@ -225,66 +247,18 @@ public class myftpserver {
 				    } else if (command.equals("pwd")) { // pwd
 						out.println(remoteCurrDir.getAbsolutePath());
 				    } else if (command.equals("quit")) { // quit
-						handleQuit();
 						break;		
 				    } else {
 				    	out.println("Unknown command");
 				    }
-				} // while	
+				} // while
+				handleQuit();
 		    } catch (IOException e) {
 		    	System.err.println("IOException in client handler");
 		    } 
 		} // run
 		
 		/********** Commands ***********/
-		
-		// potential method to use for get and put methods, see if terminate command has been entered
-		private boolean checkStatus() {
-			return true;
-		}
-		
-		private void handleGet(String fileName, DataOutputStream dataOutputStream, PrintWriter out) throws IOException {
-			File fileToDownload = new File(remoteCurrDir.getAbsolutePath() + "/" + fileName);
-		    if (fileToDownload.isFile()) {
-			    out.println("successful"); // means the file is valid and server can start sending the file data to the client
-								
-				// now getting the file's contents and name and sending it over to the client
-				FileInputStream fr = new FileInputStream(fileToDownload.getAbsolutePath());
-				byte[] fileNameBytes = fileName.getBytes();
-				byte[] fileContentBytes = new byte[(int)fileToDownload.length()];
-				fr.read(fileContentBytes);
-								
-				dataOutputStream.writeInt(fileNameBytes.length);
-				dataOutputStream.write(fileNameBytes);
-								
-				dataOutputStream.writeInt(fileContentBytes.length);
-				dataOutputStream.write(fileContentBytes);
-		    } else {
-		    	out.println(fileName + " does not exist");
-		    }
-		} // handleGet
-		
-		private void handlePut(DataInputStream dataInputStream) throws IOException{
-			// reading the file information that the client sent
-		    int fileNameLength = dataInputStream.readInt();
-		    byte[] fileNameBytes = new byte[fileNameLength];
-		    dataInputStream.readFully(fileNameBytes, 0, fileNameLength);
-		    String clientFileName = new String(fileNameBytes);
-						
-		    int fileContentLength = dataInputStream.readInt();
-		    byte[] fileContentBytes = new byte[fileContentLength];
-		    dataInputStream.readFully(fileContentBytes, 0, fileContentLength);
-	
-		    // Creating the file and writing its contents
-		    File downloadedFile = new File(remoteCurrDir.getAbsolutePath() + "/" + clientFileName);
-		    try {
-				FileOutputStream fileOutputStream = new FileOutputStream(downloadedFile);
-				fileOutputStream.write(fileContentBytes);
-				fileOutputStream.close();
-		    } catch (IOException error) {
-		    	error.printStackTrace();
-		    }		
-		} // handlePut
 		
 		private void handleDelete(String fileName) {
 			File toBeDeletedFile = new File(remoteCurrDir.getAbsolutePath() + "/" + fileName);
@@ -378,4 +352,3 @@ public class myftpserver {
 	} // ClientHandler class
 	
 }
-
