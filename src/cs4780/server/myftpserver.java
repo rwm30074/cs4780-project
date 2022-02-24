@@ -19,7 +19,6 @@ public class myftpserver {
     private static int numberOfClients = 0;
     private static int nPortNumber = -1;
     private static int tPortNumber = -1;
-	private static boolean keepGoing = false;
 	private static CommandIDTable commandIDTable = new CommandIDTable();
 	private static CommandCenter cc = new CommandCenter(commandIDTable);
     
@@ -77,12 +76,10 @@ public class myftpserver {
 			}
 			
 			while (true) {
-				System.out.println("Waiting for terminate command...");
 				Socket toClientTerminate = null;
 				try {
 					toClientTerminate = terminateServerSocket.accept();
 				} catch (IOException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 				
@@ -110,7 +107,7 @@ public class myftpserver {
     
     public static CommandIDTable getCommandIDTable() {
     	return commandIDTable;
-    }
+    } // getCommandIDTable
     
     private static void validateArguments(String[] args) {
     	if (args.length == 2) {
@@ -129,7 +126,7 @@ public class myftpserver {
 		    System.err.println("Must specify 2 available port numbers, the 1st value being the normal port and the 2nd the terminate port");
 		    System.exit(1);
 		}
-    }
+    } // validateArguments
     
     // terminate thread
     static class TerminateHandler implements Runnable {
@@ -164,7 +161,7 @@ public class myftpserver {
 			    			// must be a put command
 			    			if (commandIDTable.contains(commandID) && !commandIDTable.isTerminated(commandID)) {
 			    				commandIDTable.terminate(commandID);
-			    				outTerminate.println("Successfully terminated command " + commandID);
+			    				outTerminate.println("successful");
 			    			} else {
 			    				outTerminate.println("Failed to terminate command " + commandID + ". The command has either already ended or does not exist");
 			    			}
@@ -174,7 +171,6 @@ public class myftpserver {
 			    	} catch (NumberFormatException e) {
 			    		outTerminate.println("Invalid input. Specify terminate with an integer command-ID");
 			    	} catch (IOException e) {
-						// TODO Auto-generated catch block
 						e.printStackTrace();
 					} 
 			    } else if (command.equals("quit")) { // quit
@@ -192,12 +188,11 @@ public class myftpserver {
 			}
 			
 		} // run
-    }
+    } // TerminateHandler
     
     // command-reading-thread
     static class ClientHandler implements Runnable {
     	
-    	//private static final int NUMBER_BYTES_READ = 1;
 		private File remoteCurrDir;
 		private Socket toClient;
 		private DataOutputStream dataOutputStream;
@@ -221,7 +216,6 @@ public class myftpserver {
 				    String command = "";
 				    try {
 				    	command = in.readLine();
-				    	System.out.println("Command is " + command);
 				    } catch (IOException e) {
 				    	e.printStackTrace();
 				    }	
@@ -229,21 +223,19 @@ public class myftpserver {
 				    	String fileName = command.substring(command.indexOf(" ") + 1); // fileName
 						if (command.substring(0, command.indexOf(" ")).equals("get")) { // get command
 							cc.handleGet(command, dataOutputStream, out, remoteCurrDir);
-							//handleGet(command, dataOutputStream, out);
 						} else if (command.substring(0, command.indexOf(" ")).equals("put")) { // put command
-							cc.handlePut(command, dataInputStream, out, remoteCurrDir);
-								//handlePut(command, dataInputStream);			
+							cc.handlePut(command, dataInputStream, out, remoteCurrDir);		
 						} else if (command.substring(0, command.indexOf(" ")).equals("delete")) { // delete command
-						    handleDelete(fileName);									
+						    cc.handleDelete(fileName, out, remoteCurrDir);									
 						} else if (command.substring(0, command.indexOf(" ")).equals("cd")) { // cd command
-						    handleCd(fileName);											
+						    remoteCurrDir = cc.handleCd(fileName, out, remoteCurrDir);											
 						} else if (command.substring(0, command.indexOf(" ")).equals("mkdir")) { // mkdir
-						    handleMkdir(fileName);
+						    cc.handleMkdir(fileName, out, remoteCurrDir);
 						} else {
 						    out.println("Unknown command");
 						}		
 				    } else if (command.equals("ls")) { // ls
-						handleLs();	
+						cc.handleLs(out, remoteCurrDir);	
 				    } else if (command.equals("pwd")) { // pwd
 						out.println(remoteCurrDir.getAbsolutePath());
 				    } else if (command.equals("quit")) { // quit
@@ -252,103 +244,11 @@ public class myftpserver {
 				    	out.println("Unknown command");
 				    }
 				} // while
-				handleQuit();
+				cc.handleQuit(toClient, in, out);
 		    } catch (IOException e) {
 		    	System.err.println("IOException in client handler");
 		    } 
 		} // run
-		
-		/********** Commands ***********/
-		
-		private void handleDelete(String fileName) {
-			File toBeDeletedFile = new File(remoteCurrDir.getAbsolutePath() + "/" + fileName);
-		    if (toBeDeletedFile.exists() && toBeDeletedFile.isFile()) {
-				if (toBeDeletedFile.delete()) {
-				    out.println("successful");
-				} else {
-				    out.println("Unsuccessful delete");
-				}
-			} else {
-				out.println("File either does not exist or is not considered a file");
-		    }
-		} // handleDelete
-		
-		private void handleCd(String fileName) {
-			boolean hasException = false;
-		    File returnFile = new File(remoteCurrDir.getAbsolutePath()); // a backup if the command fails
-		    String potPath = remoteCurrDir.getAbsolutePath() + "/" + fileName;
-		    File potDirectory = new File(potPath);
-		    if (potDirectory.exists() && potDirectory.isDirectory()) {
-				File tempFile = null;
-				String desPath = fileName;
-				if (desPath.indexOf(desPath.length() - 1) == '/') { // get rid of end backslash if there is one
-				    desPath.substring(0, desPath.length() - 1);
-				}
-				if (desPath.indexOf(desPath.length() - 1) == '.' && desPath.indexOf(desPath.length() - 2) == '/') { // get rid of . if it is the last character
-				    desPath.substring(0, desPath.length() - 2);
-				}
-				if (desPath.length() == 1 && desPath.charAt(0) == '.') { // if . is the only character, then get rid of it
-				    desPath = "";
-				}
-				while (!desPath.equals("")) {
-				    String part = ""; // read up to the first / and go to that folder
-				    if (desPath.contains("/")) {
-						part = desPath.substring(0, desPath.indexOf("/")); // part of address, which is the leftmost directory in the path
-						desPath = desPath.substring(desPath.indexOf("/") + 1); // remove that part from the address and continue with the remaining address
-				    } else {
-						part = desPath;
-						desPath = "";
-				    }
-				    if (!part.equals(".")) {
-						if (part.equals("..")) {
-						    try {
-						    	remoteCurrDir = remoteCurrDir.getParentFile();
-						    } catch (NullPointerException e) {
-								remoteCurrDir = returnFile;
-								out.println("No such parent folder exists");
-								hasException = true;
-								break;
-						    }
-						} else {
-						    tempFile = new File(remoteCurrDir.getAbsolutePath() + "/" + part);
-						    remoteCurrDir = tempFile;
-						}
-				    }
-				}
-				if (hasException == false) {
-				    out.println("successful");
-				}
-		    } else {
-		    	out.println("No such directory exists");
-		    }
-		} // handleCd
-		
-		private void handleMkdir(String fileName) {
-			File newDir = new File(remoteCurrDir.toURI().getPath() + fileName);
-		    if (!newDir.exists()){
-				newDir.mkdirs();
-				out.println("successful");
-			} else {
-				out.println("Directory already exists");
-			}
-		} // handleMkdir
-		
-		private void handleLs() {
-			File[] listOfFiles = remoteCurrDir.listFiles();
-			String fileNames = "";
-			for (int i = 0; i < listOfFiles.length; i++) {
-			    fileNames = fileNames + listOfFiles[i].getName() + "  ";
-			}
-			out.println(fileNames);
-		} // handleLs
-		
-		private void handleQuit() throws IOException {
-			myftpserver.decrementClientCount();
-			in.close();
-			out.close();
-			toClient.close();
-		}
-		
 	} // ClientHandler class
 	
 }

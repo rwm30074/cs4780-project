@@ -1,7 +1,5 @@
 package cs4780.client;
 
-//client 1
-
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -15,11 +13,11 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+// client TEST
 
 public class myftp {
 	public static final int NUMBER_BYTES_READ = 2;
 	private static File localCurrDir = new File(System.getProperty("user.dir"));
-	private static Socket toServer = null;
 	private static HashMap<Integer, Boolean> activeCommandIDs = new HashMap<Integer, Boolean>();
 	
 	public static void main(String[] args) {
@@ -48,7 +46,7 @@ public class myftp {
 		
 		try {
 			// Establish connection with server socket
-			toServer = new Socket(host, nPortNumber);
+			Socket toServer = new Socket(host, nPortNumber);
 			Socket terminateSocket = new Socket(host, tPortNumber);
 			
 			BufferedReader keyboard = new BufferedReader(new InputStreamReader(System.in));
@@ -107,18 +105,23 @@ public class myftp {
 			if (activeCommandIDs.containsKey(commandID)) {
 				// get command
 				//handle here on client
-				if (activeCommandIDs.get(commandID) != false) {
-					outTerminate.println("update-table");
-					activeCommandIDs.put(commandID, false);
+				if (activeCommandIDs.get(commandID) != false) { // if commandID is active
+					outTerminate.println("update-table"); // update commandIDTable
+					activeCommandIDs.put(commandID, false); // change it to inactive
 				} else {
-					outTerminate.println("nothing");
+					outTerminate.println("nothing"); // if commandID is already false, that means it is no longer active
 					System.err.println("Cannot terminate command " + commandID + ". The command has already ended");
 				}
 			} else {
 				// put command
 				// handle on server side
 				outTerminate.println("to-server");	
-				System.out.println(inTerminate.readLine());
+				
+				// print response if there was some error
+				String response = inTerminate.readLine();
+				if (!response.equals("successful")) {
+					System.err.println(response);
+				}
 			}
 
 		} else {
@@ -145,7 +148,6 @@ public class myftp {
 			willSendFile = false;
 		}
 		if (willSendFile) {
-			//System.out.println("Thread on client: " + Thread.currentThread().getName());
 			File sendFile = new File(localCurrDir.getAbsolutePath() + "/" + fileName); // create file object of the file being put on the server
 			if (sendFile.isFile()) {
 				out.println(command); // notify server of put command
@@ -166,7 +168,7 @@ public class myftp {
 		}
 	}
 	
-	private static void handleGet(String command, DataInputStream dataInputStream, BufferedReader in, PrintWriter out) throws IOException {
+	private synchronized static void handleGet(String command, DataInputStream dataInputStream, BufferedReader in, PrintWriter out) throws IOException {
 		out.println(command); // send get command to server
 		String serverResponse = in.readLine(); // read server response
 		if (!serverResponse.equalsIgnoreCase("successful")) { // an error exists, in which the specified file does not exist
@@ -174,29 +176,36 @@ public class myftp {
 		} else {
 			int commandID = Integer.parseInt(in.readLine());
 			System.out.println("Command ID: " + commandID);
-			activeCommandIDs.put(commandID, true);
-	
-			
-			int fileNameLength = dataInputStream.readInt();
-			byte[] fileNameBytes = new byte[fileNameLength];
-			dataInputStream.readFully(fileNameBytes, 0, fileNameLength);
-			String fileName = new String(fileNameBytes);
-			
-			int fileContentLength = dataInputStream.readInt();
-			byte[] fileContentBytes = new byte[fileContentLength];
-			dataInputStream.readFully(fileContentBytes, 0, fileContentLength);
-			
-			if (!command.contains("&")) {
-		    	writeFile(fileName, fileContentBytes, commandID);
-		    } else {
-		    	new Thread(() -> {
-		    		writeFile(fileName, fileContentBytes, commandID);
-		    	}).start();
-		    }
+			if (command.contains("&")) {
+				new Thread(() -> {
+					try {
+						getHelper(dataInputStream, in, out, commandID);
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+				}).start();
+			} else {
+				getHelper(dataInputStream, in, out, commandID);
+			}
 		}
 	} // handleGet
 	
-	synchronized private static void writeFile(String fileName, byte[] fileContentBytes, int commandID) {
+	private synchronized static void getHelper(DataInputStream dataInputStream, BufferedReader in, PrintWriter out, int commandID) throws IOException {
+		activeCommandIDs.put(commandID, true);
+
+		int fileNameLength = dataInputStream.readInt();
+		byte[] fileNameBytes = new byte[fileNameLength];
+		dataInputStream.readFully(fileNameBytes, 0, fileNameLength);
+		String fileName = new String(fileNameBytes);
+		
+		int fileContentLength = dataInputStream.readInt();
+		byte[] fileContentBytes = new byte[fileContentLength];
+		dataInputStream.readFully(fileContentBytes, 0, fileContentLength);
+		
+		writeFile(fileName, fileContentBytes, commandID);
+	}
+	
+	private synchronized static void writeFile(String fileName, byte[] fileContentBytes, int commandID) {
 	    // Creating the file and writing its contents
 	    File downloadedFile = new File(fileName);
 	    try {
@@ -209,24 +218,15 @@ public class myftp {
 			if (lengthOfFile < NUMBER_BYTES_READ) {
 				fileOutputStream.write(fileContentBytes, startReadingAt, lengthOfFile);
 			} else {
-				//System.out.println("Number of bytes: " + lengthOfFile);
 				boolean isTerminated = false;
 				while(!oneMoreWrite) {
-					//System.out.println(i);
-					//i++;
 					fileOutputStream.write(fileContentBytes, startReadingAt, readingLength);
-					// CHECK FOR TERMINATION HERE
 					
+					// Checking for termination
 					if (activeCommandIDs.get(commandID) == false) {
-						System.out.println("Terminating file!!!!");
 						fileOutputStream.close();
-						if (downloadedFile.delete()) {
-							System.out.println("successful delete");
-						} else {
-							System.out.println("Failed to delete)");
-						}
+						downloadedFile.delete();
 						isTerminated = true;
-						//commandIDContainer.remove(commandID); // termination has ended
 						break;
 					}
 					
@@ -243,7 +243,6 @@ public class myftp {
 				} // while
 				if (isTerminated == false) {
 					fileOutputStream.write(fileContentBytes, startReadingAt, readingLength);
-					//commandIDContainer.put(commandID, true);
 				}
 				
 				activeCommandIDs.put(commandID, false); // command has finished, so it becomes inactive
