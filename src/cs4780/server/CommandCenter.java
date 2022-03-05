@@ -13,6 +13,7 @@ import java.net.Socket;
 public class CommandCenter {
 
 	private final static int NUMBER_BYTES_READ = 2;
+	private final static int SLEEP_AMOUNT = 500;
 	
 	private CommandIDTable commandIDTable;
 	private boolean isPutting = false;
@@ -151,7 +152,7 @@ public class CommandCenter {
 						oneMoreWrite = true;
 					}
 					try {
-						Thread.sleep(500);
+						Thread.sleep(SLEEP_AMOUNT);
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}

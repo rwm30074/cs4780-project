@@ -13,9 +13,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 
 public class myftpserver {
-	
-	public static final int NUMBER_BYTES_READ = 2;
-	
+		
     private static int numberOfClients = 0;
     private static int nPortNumber = -1;
     private static int tPortNumber = -1;

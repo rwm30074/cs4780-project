@@ -12,7 +12,7 @@ public class CommandIDTable {
 		currentCommandID = 1;
 	}
 	
-	public int getCurrentCommandID() {
+	public synchronized int getCurrentCommandID() {
 		return currentCommandID;
 	}
 	
@@ -42,10 +42,5 @@ public class CommandIDTable {
 	public synchronized boolean contains(int commandID) {
 		return table.containsKey(commandID);
 	}
-	
-	public void printTable() {
-		System.out.println(table.toString());
-	}
-	
 	
 }

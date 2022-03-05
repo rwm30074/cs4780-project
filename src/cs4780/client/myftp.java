@@ -16,7 +16,10 @@ import java.util.HashMap;
 // client TEST
 
 public class myftp {
-	public static final int NUMBER_BYTES_READ = 2;
+	
+	private final static int NUMBER_BYTES_READ = 2;
+	private final static int SLEEP_AMOUNT = 500;
+	
 	private static File localCurrDir = new File(System.getProperty("user.dir"));
 	private static HashMap<Integer, Boolean> activeCommandIDs = new HashMap<Integer, Boolean>();
 	
@@ -236,7 +239,7 @@ public class myftp {
 						oneMoreWrite = true;
 					}
 					try {
-						Thread.sleep(500);
+						Thread.sleep(SLEEP_AMOUNT);
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
